@@ -1,0 +1,24 @@
+# Distribution / packaging
+build*/
+dist/
+*.spec
+__pycache__/
+*.pyc
+*.pyo
+
+# python virtual environment
+venv/
+env/
+
+# MacOS
+.DS_Store
+# Windows
+Thumbs.db
+
+# Temp files
+*.log
+*.tmp
+*.cfg
+
+# API keys and credentials
+config.py
