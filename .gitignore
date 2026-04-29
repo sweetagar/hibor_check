@@ -22,3 +22,8 @@ Thumbs.db
 
 # API keys and credentials
 config.py
+
+# AI
+.claude/
+CLAUDE.md
+AGENTS.md

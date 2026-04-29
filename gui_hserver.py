@@ -31,17 +31,15 @@ def get_hibor():
     tags = soup.body.find_all(string='This is a non-working day. Please select another day.')
     if len(tags) > 0:
         outputTxt(f"[{dt.now().strftime(dt_format)}] Today is a non-working weekday!")
-        return 0.0
+        return {}
 
-
-    tags = soup.find_all('div', class_='general_table_cell last')
-    if len(tags) > 5:
-        hibor=float(tags[4].text)
-    else:
-        hibor=0.0
-    n_tags = soup.find_all('div', class_='')
-    outputTxt(f"[{dt.now().strftime(dt_format)}] 1-Mth Hibor = {hibor}")
-    return hibor
+    rates = {}
+    m_tags = soup.find_all('div', class_='general_table_cell hibor_maturity')
+    r_tags = soup.find_all('div', class_='general_table_cell last')
+    for m, r in zip(m_tags[1:], r_tags[1:]):  # skip header row
+        rates[m.text.strip()] = float(r.text.strip())
+    outputTxt(f"[{dt.now().strftime(dt_format)}] Hibor rates: {rates}")
+    return rates
 
 def load_conf(c_file=conf_file, writeFile=False):
     global update_time,ac_thres_hi,ac_thres_lo, ic_thres_hi, ic_thres_lo
@@ -62,15 +60,21 @@ def load_conf(c_file=conf_file, writeFile=False):
     return file_data
 
 
-def tg_alert(mth_hibor, key, chat_id, thres_hi, thres_lo=0):
-    alert = alert_sym+'HIGHER than '+str(thres_hi)+alert_sym if mth_hibor > thres_hi else tick_sym+'LOWER than '+ str(thres_hi)+tick_sym
+def tg_alert(mth_hibor, key, chat_id, thres_hi, thres_lo=0, rates={}):
     if mth_hibor > thres_hi or mth_hibor < thres_lo:
         alert = f'{alert_sym}OUT OF RANGE: {thres_lo} to {thres_hi}{alert_sym}'
     else:
         alert = f'{tick_sym}Within Range: {thres_lo} to {thres_hi}{tick_sym}'
-        #+'OUT OF RANGE of '+str(thres_hi)+alert_sym if mth_hibor > thres_hi else tick_sym+'LOWER than '+ str(thres_hi)+tick_sym
 
-    text = '1-Mth Hibor is '+str(mth_hibor) + '\n' + alert if mth_hibor > 0 else 'Hibor is not available today'
+    if rates:
+        today = dt.now().strftime('%Y-%m-%d')
+        text = f'HIBOR Rates {today}\n' + '\n'.join(f'{k}: {v}' for k, v in rates.items()) + '\n\n' + alert
+        if rates.get('Overnight', 0) > rates.get('1 Month', 0):
+            text += f"\n{alert_sym}ALERT: Overnight ({rates['Overnight']}) > 1 Month ({rates['1 Month']}){alert_sym}"
+        else:
+            text += f"\n{tick_sym}Overnight ({rates['Overnight']}) < 1 Month ({rates['1 Month']}){tick_sym}"
+    else:
+        text = '1-Mth Hibor is '+str(mth_hibor) + '\n' + alert if mth_hibor > 0 else 'Hibor is not available today'
     send_url = f'https://api.telegram.org/bot{key}/sendMessage?chat_id={chat_id}&parse_mode=NONE&text={text}'
     try:
         response = re.get(send_url)
@@ -83,24 +87,26 @@ def is_weekday():
     # Check if today is a weekday (Monday to Friday)
     return dt.now().weekday() < 5
 
-def hibor_check():                                                  
-    if is_weekday():                                                
+def hibor_check():
+    if is_weekday():
     # Only run the check if today is a weekday
-        try:                                                        
-            mth_hibor = get_hibor()                                 
-            # ... rest of alert logic                               
-        except Exception as e:                                      
+        try:
+            rates = get_hibor()
+            mth_hibor = rates.get('1 Month', 0.0)
+        except Exception as e:
             outputTxt(f"Connection error, skipping this check: {e}")
-            return                                                  
+            return
+        if not rates:
+            return
         # TG alert for Adrian
-        ack=tg_alert(mth_hibor, AC_TG_KEY, AC_TG_CHATID, ac_thres_hi, ac_thres_lo)
+        ack=tg_alert(mth_hibor, AC_TG_KEY, AC_TG_CHATID, ac_thres_hi, ac_thres_lo, rates)
         if ack['ok']:
             outputTxt(f"[{dt.now().strftime(dt_format)}] Alert to Adrian: msg_id=[{ack['result']['message_id']}]")
         else:
             outputTxt(f"[{dt.now().strftime(dt_format)}] Alert error to Adrian: {ack['description']}")
 
         # TG alert for Isaac
-        ack=tg_alert(mth_hibor, AC_TG_KEY, IC_TG_CHATID, ic_thres_hi, ic_thres_lo)
+        ack=tg_alert(mth_hibor, AC_TG_KEY, IC_TG_CHATID, ic_thres_hi, ic_thres_lo, rates)
         if ack['ok']:
             outputTxt(f"[{dt.now().strftime(dt_format)}] Alert to Isaac: msg_id=[{ack['result']['message_id']}]")
         else:
